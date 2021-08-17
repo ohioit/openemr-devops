@@ -8,7 +8,7 @@
 #    - Setting openemr parameters OE_USER, OE_PASS
 set -e
 
-source /root/devtoolsLibrary.source
+. /usr/local/lib/openemr/tools/devtoolsLibrary.source
 
 swarm_wait() {
     if [ ! -f /var/www/localhost/htdocs/openemr/sites/default/docker-completed ]; then
@@ -23,12 +23,15 @@ swarm_wait() {
 auto_setup() {
     prepareVariables
 
-    chmod -R 600 .
-    php auto_configure.php -f ${CONFIGURATION} || return 1
+    if [ "$(whoami)" = "root" ]; then
+        chmod -R 600 .
+    fi
+
+    php setup/auto_configure.php -f ${CONFIGURATION} || return 1
 
     echo "OpenEMR configured."
     CONFIG=$(php -r "require_once('/var/www/localhost/htdocs/openemr/sites/default/sqlconf.php'); echo \$config;")
-    if [ "$CONFIG" == "0" ]; then
+    if [ "$CONFIG" = "0" ]; then
         echo "Error in auto-config. Configuration failed."
         exit 2
     fi
@@ -36,28 +39,28 @@ auto_setup() {
     setGlobalSettings
 }
 
-if [ "$SWARM_MODE" == "yes" ]; then
+if [ "$SWARM_MODE" = "yes" ]; then
     # Check if the shared volumes have been emptied out (persistent volumes in
     # kubernetes seems to do this). If they have been emptied, then restore them.
     if [ ! -f /etc/ssl/openssl.cnf ]; then
         # Restore the emptied /etc/ssl directory
         echo "Restoring empty /etc/ssl directory."
-        rsync --owner --group --perms --recursive --links /swarm-pieces/ssl /etc/
+        rsync --owner --group --perms --recursive --links /swarm-pieces/ssl/* /etc/ssl
     fi
     if [ ! -d /var/www/localhost/htdocs/openemr/sites/default ]; then
         # Restore the emptied /var/www/localhost/htdocs/openemr/sites directory
         echo "Restoring empty /var/www/localhost/htdocs/openemr/sites directory."
-        rsync --owner --group --perms --recursive --links /swarm-pieces/sites /var/www/localhost/htdocs/openemr/
+        rsync --owner --group --perms --recursive --links /swarm-pieces/sites/* /var/www/localhost/htdocs/openemr/sites
     fi
 
     # Need to support replication for docker orchestration
     if [ ! -f /var/www/localhost/htdocs/openemr/sites/default/docker-initiated ]; then
         # This docker instance will be the leader and perform configuration
         touch /var/www/localhost/htdocs/openemr/sites/default/docker-initiated
-        touch /etc/docker-leader
+        touch /var/run/openemr/docker-leader
     fi
 
-    if [ ! -f /etc/docker-leader ] &&
+    if [ ! -f /var/run/openemr/docker-leader ] &&
        [ ! -f /var/www/localhost/htdocs/openemr/sites/default/docker-completed ]; then
         while swarm_wait; do
             echo "Waiting for the docker-leader to finish configuration before proceeding."
@@ -66,7 +69,7 @@ if [ "$SWARM_MODE" == "yes" ]; then
     fi
 fi
 
-if [ -f /etc/docker-leader ] ||
+if [ -f /var/run/openemr/docker-leader ] ||
    [ "$SWARM_MODE" != "yes" ]; then
     # ensure a self-signed cert has been generated and is referenced
     if ! [ -f /etc/ssl/private/selfsigned.key.pem ]; then
@@ -93,10 +96,10 @@ if [ -f /etc/docker-leader ] ||
         fi
         # if a domain has been set, set up LE and target those certs
 
-        if ! [ -f /etc/letsencrypt/live/$DOMAIN/fullchain.pem ]; then
+        if ! [ -f /etc/letsencrypt/live/"$DOMAIN"/fullchain.pem ]; then
             /usr/sbin/httpd -k start
             sleep 2
-            certbot certonly --webroot -n -w /var/www/localhost/htdocs/openemr/ -d $DOMAIN $EMAIL --agree-tos
+            certbot certonly --webroot -n -w /var/www/localhost/htdocs/openemr/ -d "$DOMAIN" "$EMAIL" --agree-tos
             /usr/sbin/httpd -k stop
             echo "1 23  *   *   *   certbot renew -q --post-hook \"httpd -k graceful\"" >> /etc/crontabs/root
         fi
@@ -105,19 +108,19 @@ if [ -f /etc/docker-leader ] ||
         if [ ! -f /etc/ssl/docker-letsencrypt-configured ]; then
             rm -f /etc/ssl/certs/webserver.cert.pem
             rm -f /etc/ssl/private/webserver.key.pem
-            ln -s /etc/letsencrypt/live/$DOMAIN/fullchain.pem /etc/ssl/certs/webserver.cert.pem
-            ln -s /etc/letsencrypt/live/$DOMAIN/privkey.pem /etc/ssl/private/webserver.key.pem
+            ln -s /etc/letsencrypt/live/"$DOMAIN"/fullchain.pem /etc/ssl/certs/webserver.cert.pem
+            ln -s /etc/letsencrypt/live/"$DOMAIN"/privkey.pem /etc/ssl/private/webserver.key.pem
             touch /etc/ssl/docker-letsencrypt-configured
         fi
     fi
 fi
 
 UPGRADE_YES=false;
-if [ -f /etc/docker-leader ] ||
+if [ -f /var/run/openemr/docker-leader ] ||
    [ "$SWARM_MODE" != "yes" ]; then
     # Figure out if need to do upgrade
-    if [ -f /root/docker-version ]; then
-        DOCKER_VERSION_ROOT=$(cat /root/docker-version)
+    if [ -f /usr/local/share/openemr/tools/docker-version ]; then
+        DOCKER_VERSION_ROOT=$(cat /usr/local/share/openemr/tools/docker-version)
     else
         DOCKER_VERSION_ROOT=0
     fi
@@ -133,7 +136,7 @@ if [ -f /etc/docker-leader ] ||
     fi
 
     # Only perform upgrade if the sites dir is shared and not entire openemr directory
-    if [ "$DOCKER_VERSION_ROOT" == "$DOCKER_VERSION_CODE" ] &&
+    if [ "$DOCKER_VERSION_ROOT" = "$DOCKER_VERSION_CODE" ] &&
        [ "$DOCKER_VERSION_ROOT" -gt "$DOCKER_VERSION_SITES" ]; then
         echo "Plan to try an upgrade from $DOCKER_VERSION_SITES to $DOCKER_VERSION_ROOT"
         UPGRADE_YES=true;
@@ -143,7 +146,7 @@ fi
 CONFIG=$(php -r "require_once('/var/www/localhost/htdocs/openemr/sites/default/sqlconf.php'); echo \$config;")
 if [ -f /etc/docker-leader ] ||
    [ "$SWARM_MODE" != "yes" ]; then
-    if [ "$CONFIG" == "0" ] &&
+    if [ "$CONFIG" = "0" ] &&
        [ "$MYSQL_HOST" != "" ] &&
        [ "$MYSQL_ROOT_PASS" != "" ] &&
        [ "$MANUAL_SETUP" != "yes" ]; then
@@ -160,7 +163,7 @@ if [ -f /etc/docker-leader ] ||
     fi
 fi
 
-if [ "$CONFIG" == "1" ] &&
+if [ "$CONFIG" = "1" ] &&
    [ "$MANUAL_SETUP" != "yes" ]; then
     # OpenEMR has been configured
 
@@ -171,7 +174,7 @@ if [ "$CONFIG" == "1" ] &&
         while [ "$c" -le "$DOCKER_VERSION_ROOT" ]; do
             if [ "$c" -gt "$DOCKER_VERSION_SITES" ] ; then
                 echo "Start: Processing fsupgrade-$c.sh upgrade script"
-                sh /root/fsupgrade-$c.sh
+                sh /usr/local/lib/openemr/fsupgrade-$c.sh
                 echo "Completed: Processing fsupgrade-$c.sh upgrade script"
             fi
             c=$(( c + 1 ))
@@ -181,45 +184,32 @@ if [ "$CONFIG" == "1" ] &&
     fi
 
     if [ -f auto_configure.php ]; then
-        # This section only runs once after above configuration since auto_configure.php gets removed after this script
-        echo "Setting user 'www' as owner of openemr/ and setting file/dir permissions to 400/500"
-        #set all directories to 500
-        find . -type d -print0 | xargs -0 chmod 500
-        #set all file access to 400
-        find . -type f -print0 | xargs -0 chmod 400
+        if [ "$(whoami)" = "root" ]; then
+            echo "Setting user 'www' as owner of openemr/ and setting file/dir permissions to 400/500"
+            #set all directories to 500
+            find . -type d -print0 | xargs -0 chmod 500
+            #set all file access to 400
+            find . -type f -print0 | xargs -0 chmod 400
 
-        echo "Default file permissions and ownership set, allowing writing to specific directories"
-        chmod 700 run_openemr.sh
-        # Set file and directory permissions
-        find sites/default/documents -type d -print0 | xargs -0 chmod 700
-        find sites/default/documents -type f -print0 | xargs -0 chmod 700
+            echo "Default file permissions and ownership set, allowing writing to specific directories"
+            chmod 700 run_openemr.sh
+            # Set file and directory permissions
+            find sites/default/documents -type d -print0 | xargs -0 chmod 700
+            find sites/default/documents -type f -print0 | xargs -0 chmod 700
+        fi
 
         echo "Removing remaining setup scripts"
         #remove all setup scripts
-        rm -f admin.php
-        rm -f acl_upgrade.php
-        rm -f setup.php
-        rm -f sql_patch.php
-        rm -f sql_upgrade.php
-        rm -f ippf_upgrade.php
+        rm -f setup/*.php
         echo "Setup scripts removed, we should be ready to go now!"
     fi
 fi
 
 # ensure the auto_configure.php script has been removed
-rm -f auto_configure.php
+rm -f setup/auto_configure.php
 
-if [ -f /etc/docker-leader ] &&
-   [ "$SWARM_MODE" == "yes" ]; then
+if [ -f /var/run/openemr/docker-leader ] &&
+   [ "$SWARM_MODE" = "yes" ]; then
     # Set flag that the docker-leader configuration is complete
     touch /var/www/localhost/htdocs/openemr/sites/default/docker-completed
-fi
-
-if [ "$REDIS_SERVER" != "" ] &&
-   [ ! -f /etc/php-redis-configured ]; then
-    # Variable for $REDIS_SERVER is usually going to be something like 'redis'
-    sed -i "s@session.save_handler = files@session.save_handler = redis@" /etc/php8/php.ini
-    sed -i "s@;session.save_path = \"/tmp\"@session.save_path = \"tcp://$REDIS_SERVER:6379\"@" /etc/php8/php.ini
-    # Ensure only configure this one time
-    touch /etc/php-redis-configured
 fi

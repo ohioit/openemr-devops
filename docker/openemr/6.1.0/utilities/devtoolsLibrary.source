@@ -78,11 +78,11 @@ demoData() {
 
 # parameter 1 is original version
 upgradeOpenEMR() {
-    sed -e "s@!empty(\$_POST\['form_submit'\])@true@" < /var/www/localhost/htdocs/openemr/sql_upgrade.php > /var/www/localhost/htdocs/openemr/sql_upgrade_temp.php
-    sed -i "s@\$form_old_version = \$_POST\['form_old_version'\];@\$form_old_version = '${1}';@" /var/www/localhost/htdocs/openemr/sql_upgrade_temp.php
-    sed -i "1s@^@<?php \$_GET['site'] = 'default'; ?>@" /var/www/localhost/htdocs/openemr/sql_upgrade_temp.php
-    php -f /var/www/localhost/htdocs/openemr/sql_upgrade_temp.php
-    rm -f /var/www/localhost/htdocs/openemr/sql_upgrade_temp.php
+    sed -e "s@!empty(\$_POST\['form_submit'\])@true@" < /var/www/localhost/htdocs/openemr/sql_upgrade.php > /var/www/localhost/htdocs/openemr/sites/default/sql_upgrade_temp.php
+    sed -i "s@\$form_old_version = \$_POST\['form_old_version'\];@\$form_old_version = '${1}';@" /var/www/localhost/htdocs/openemr/sites/default/sql_upgrade_temp.php
+    sed -i "1s@^@<?php \$_GET['site'] = 'default'; ?>@" /var/www/localhost/htdocs/openemr/sites/default/sql_upgrade_temp.php
+    php -f /var/www/localhost/htdocs/openemr/sites/default/sql_upgrade_temp.php
+    rm -f /var/www/localhost/htdocs/openemr/sites/default/sql_upgrade_temp.php
 }
 
 sqlDataDrive() {

@@ -60,8 +60,8 @@ for dir in $(find /var/www/localhost/htdocs/openemr/sites/* -maxdepth 0 -type d 
 done
 
 # Fix permissions
-echo "Start: Fix permissions"
-chown -R apache:root /var/www/localhost/htdocs/openemr/sites/
+echo "Start: Fix permissions (ok if this fails and your container isn't running as root, probably)"
+chown -R apache:root /var/www/localhost/htdocs/openemr/sites/ || true
 echo "Completed: Fix permissions"
 
 # Perform database upgrade on each directory in sites/
@@ -70,11 +70,11 @@ for dirdata in $(find /var/www/localhost/htdocs/openemr/sites/* -maxdepth 0 -typ
 
     # Upgrade database
     echo "Start: Upgrade database for $sitename from $priorOpenemrVersion"
-    sed -e "s@!empty(\$_POST\['form_submit'\])@true@" < /var/www/localhost/htdocs/openemr/sql_upgrade.php > /var/www/localhost/htdocs/openemr/TEMPsql_upgrade.php
-    sed -i "s@\$form_old_version = \$_POST\['form_old_version'\];@\$form_old_version = '$priorOpenemrVersion';@" /var/www/localhost/htdocs/openemr/TEMPsql_upgrade.php
-    sed -i "1s@^@<?php \$_GET['site'] = '$sitename'; ?>@" /var/www/localhost/htdocs/openemr/TEMPsql_upgrade.php
-    php -f /var/www/localhost/htdocs/openemr/TEMPsql_upgrade.php
-    rm -f /var/www/localhost/htdocs/openemr/TEMPsql_upgrade.php
+    sed -e "s@!empty(\$_POST\['form_submit'\])@true@" < /var/www/localhost/htdocs/openemr/sql_upgrade.php > /var/www/localhost/htdocs/openemr/sites/default/TEMPsql_upgrade.php
+    sed -i "s@\$form_old_version = \$_POST\['form_old_version'\];@\$form_old_version = '$priorOpenemrVersion';@" /var/www/localhost/htdocs/openemr/sites/default/TEMPsql_upgrade.php
+    sed -i "1s@^@<?php \$_GET['site'] = '$sitename'; ?>@" /var/www/localhost/htdocs/openemr/sites/default/TEMPsql_upgrade.php
+    php -f /var/www/localhost/htdocs/openemr/sites/default/TEMPsql_upgrade.php
+    rm -f /var/www/localhost/htdocs/openemr/sites/default/TEMPsql_upgrade.php
     echo "Completed: Upgrade database for $sitename from $priorOpenemrVersion"
 done
 
